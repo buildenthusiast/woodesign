@@ -15,6 +15,7 @@ from . import photo
 from .view3d import View3D
 from . import quote as quote_mod
 from . import updater
+from . import decors as decor_mod
 
 FRONT_COL = {"door": "#e2c29b", "drawer": "#d4b089", "lift": "#e2c29b"}
 CARC_COL = {"side": "#f0f0f0", "panel": "#f0f0f0", "divider": "#f0f0f0", "plinth": "#9a9a9a", "shelf": "#c8c8c8"}
@@ -267,6 +268,15 @@ class App(tk.Tk):
         row("Гръб", "back_mat", "combo")
         row("Чекмеджета – кутия", "drawer_mat", "combo")
         row("Чекмеджета – дъно", "drawer_bottom_mat", "combo")
+        head("Цвят / декор")
+        row("Декор корпус", "carcass_decor", "combo", width=34)
+        self.sw_c = tk.Label(f, text="    ", relief="solid", bd=1)
+        self.sw_c.grid(row=r - 1, column=2, padx=2)
+        row("Декор фронтове", "front_decor", "combo", width=34)
+        self.sw_f = tk.Label(f, text="    ", relief="solid", bd=1)
+        self.sw_f.grid(row=r - 1, column=2, padx=2)
+        ttk.Button(f, text="🎨 Библиотека с декори…", command=self.cmd_decors).grid(row=r, column=0, columnspan=2, sticky="we", padx=4, pady=2)
+        r += 1
         head("Кантове")
         row("Корпус (видими ръбове)", "carcass_band", "combo")
         row("Фронтове (4 страни)", "front_band", "combo")
@@ -479,6 +489,9 @@ class App(tk.Tk):
             self.v[k][1]["values"] = bands
         self.v["hinge"][1]["values"] = [h["name"] for h in c["hinges"]]
         self.v["slide"][1]["values"] = [s["name"] for s in c["slides"]]
+        labels = [decor_mod.label(d) for d in c.get("decors", [])]
+        self.v["carcass_decor"][1]["values"] = labels
+        self.v["front_decor"][1]["values"] = labels
 
     def load_item(self, keep_ideas=False):
         it = self.item
@@ -497,6 +510,11 @@ class App(tk.Tk):
                 self.v[k][0].set(self.name_by_key(c["bands"], it.get(k)))
             self.v["hinge"][0].set(self.name_by_key(c["hinges"], it.get("hinge")))
             self.v["slide"][0].set(self.name_by_key(c["slides"], it.get("slide")))
+            M = {m["key"]: m for m in c["materials"]}
+            for k, mk in (("carcass_decor", "carcass_mat"), ("front_decor", "front_mat")):
+                d = decor_mod.get(c.get("decors", []), it.get(k) or decor_mod.default_for_material(M.get(it.get(mk))))
+                self.v[k][0].set(decor_mod.label(d))
+            self.update_swatches()
             self.v["base"][0].set(BASE_TYPES.get(it.get("base"), ""))
             self.v["top"][0].set(TOP_TYPES.get(it.get("top"), ""))
             self.v["back"][0].set(BACK_TYPES.get(it.get("back"), ""))
@@ -562,6 +580,12 @@ class App(tk.Tk):
         hk = self.key_by_name(c["hinges"], self.v["hinge"][0].get())
         if hk:
             it["hinge"] = hk
+        for k in ("carcass_decor", "front_decor"):
+            lab = self.v[k][0].get()
+            for d in c.get("decors", []):
+                if decor_mod.label(d) == lab:
+                    it[k] = d["key"]
+        self.update_swatches()
         sk = self.key_by_name(c["slides"], self.v["slide"][0].get())
         if sk:
             it["slide"] = sk
@@ -629,6 +653,27 @@ class App(tk.Tk):
         if getattr(self, "res", None) is not None and self.item is not None:
             self.v3d.set_model(self.item, self.res, self.cat)
 
+    def decor_colors(self):
+        it = self.item
+        c = self.cat
+        M = {m["key"]: m for m in c["materials"]}
+        cd = decor_mod.get(c.get("decors", []), it.get("carcass_decor") or decor_mod.default_for_material(M.get(it.get("carcass_mat"))))
+        fd = decor_mod.get(c.get("decors", []), it.get("front_decor") or decor_mod.default_for_material(M.get(it.get("front_mat"))))
+        return cd["color"], fd["color"]
+
+    def update_swatches(self):
+        if self.item is None:
+            return
+        cc, fc = self.decor_colors()
+        self.sw_c.config(bg=cc)
+        self.sw_f.config(bg=fc)
+
+    def cmd_decors(self):
+        dlg = DecorDialog(self)
+        self.wait_window(dlg)
+        self.refresh_combos()
+        self.load_item()
+
     def draw_preview(self):
         cv = self.prev
         cv.delete("all")
@@ -647,10 +692,11 @@ class App(tk.Tk):
             return cv.create_rectangle(ox + x * s, oy - (y + h) * s, ox + (x + w) * s, oy - y * s, **kw)
         cv.create_line(10, oy, cw - 10, oy, fill="#999")
         fronts = self.show_fronts.get()
+        ccol, fcol = self.decor_colors()
         R(0, 0, W, H, outline="#bbb", dash=(2, 2))
         for k, x, y, w, h, lab in res.shapes:
             if k in CARC_COL:
-                R(x, y, w, h, fill=CARC_COL[k], outline="#555")
+                R(x, y, w, h, fill=(ccol if k in ("side", "panel", "divider", "plinth") else CARC_COL[k]), outline="#555")
             elif k == "rail":
                 cv.create_line(ox + x * s, oy - y * s, ox + (x + w) * s, oy - y * s, width=3, fill="#666")
             elif k == "legs":
@@ -659,15 +705,15 @@ class App(tk.Tk):
         if fronts:
             for k, x, y, w, h, lab in res.shapes:
                 if k in FRONT_COL:
-                    R(x, y, w, h, fill=FRONT_COL[k], outline="#6b4f2f", width=1)
+                    R(x, y, w, h, fill=fcol, outline="#6b4f2f", width=1)
                     if k == "door":
                         hx = x if lab == "L" else x + w
                         ox2 = x + w if lab == "L" else x
                         cv.create_line(ox + ox2 * s, oy - y * s, ox + hx * s, oy - (y + h / 2) * s, ox + ox2 * s, oy - (y + h) * s, dash=(4, 3), fill="#7a6040")
                         hx2 = x + w - 40 if lab == "L" else x + 40
-                        cv.create_line(ox + hx2 * s, oy - (y + h / 2 - 60) * s, ox + hx2 * s, oy - (y + h / 2 + 60) * s, width=3, fill="#444")
+                        cv.create_line(ox + hx2 * s, oy - (y + h / 2 - 60) * s, ox + hx2 * s, oy - (y + h / 2 + 60) * s, width=3, fill=("#dddddd" if sum(int(fcol[i:i + 2], 16) for i in (1, 3, 5)) < 300 else "#444"))
                     elif k == "drawer":
-                        cv.create_line(ox + (x + w / 2 - 60) * s, oy - (y + h - 35) * s, ox + (x + w / 2 + 60) * s, oy - (y + h - 35) * s, width=3, fill="#444")
+                        cv.create_line(ox + (x + w / 2 - 60) * s, oy - (y + h - 35) * s, ox + (x + w / 2 + 60) * s, oy - (y + h - 35) * s, width=3, fill=("#dddddd" if sum(int(fcol[i:i + 2], 16) for i in (1, 3, 5)) < 300 else "#444"))
                     elif k == "lift":
                         cv.create_text(ox + (x + w / 2) * s, oy - (y + h / 2) * s, text="↑ клапа", fill="#555")
         # коти
@@ -1165,6 +1211,132 @@ class PhotoDialog(tk.Toplevel):
             self.app.add_from_photo(out["res"], known)
             self.destroy()
         self.after(300, poll)
+
+
+class DecorDialog(tk.Toplevel):
+    """Библиотека с декори: преглед, добавяне (цвят / снимка / линк), изтриване."""
+
+    def __init__(self, app):
+        super().__init__(app)
+        self.app = app
+        self.title("Библиотека с декори")
+        self.transient(app)
+        self.grab_set()
+        self.geometry("760x560")
+        top = ttk.Frame(self, padding=6)
+        top.pack(fill="x")
+        ttk.Label(top, text="Цветовете са ориентировъчни – потвърждавайте по мостра. Двоен клик = смяна на цвета.",
+                  foreground="#555").pack(side="left")
+        cols = ("sw", "code", "name", "kind", "sup")
+        self.tv = ttk.Treeview(self, columns=cols, show="headings")
+        for c_, h_, w_ in zip(cols, ("Цвят", "Код", "Име", "Вид", "Доставчик"), (60, 120, 300, 100, 110)):
+            self.tv.heading(c_, text=h_)
+            self.tv.column(c_, width=w_, anchor="w")
+        self.tv.pack(fill="both", expand=True, padx=6)
+        self.tv.bind("<Double-Button-1>", lambda e: self.recolor())
+        bf = ttk.Frame(self, padding=6)
+        bf.pack(fill="x")
+        ttk.Button(bf, text="+ Нов (избор на цвят)", command=self.add_color).pack(side="left")
+        ttk.Button(bf, text="+ От снимка на мостра…", command=self.add_file).pack(side="left", padx=4)
+        ttk.Button(bf, text="+ От линк към снимка…", command=self.add_url).pack(side="left")
+        ttk.Button(bf, text="Изтрий", command=self.delete).pack(side="left", padx=4)
+        ttk.Button(bf, text="Затвори", command=self.destroy).pack(side="right")
+        self.fill()
+
+    @property
+    def decs(self):
+        return self.app.cat.setdefault("decors", decor_mod.default_decors())
+
+    def fill(self):
+        self.tv.delete(*self.tv.get_children())
+        for d in self.decs:
+            tag = "c" + d["color"].lstrip("#")
+            self.tv.tag_configure(tag, background=d["color"],
+                                  foreground="#ffffff" if sum(int(d["color"][i:i + 2], 16) for i in (1, 3, 5)) < 330 else "#000000")
+            self.tv.insert("", "end", iid=d["key"], values=("", d["key"], d["name"], decor_mod.KIND_NAMES.get(d["kind"], d["kind"]),
+                                                             d.get("supplier", "")), tags=(tag,))
+
+    def _ask_meta(self, kind_guess="uni"):
+        code = simpledialog.askstring("Нов декор", "Код на декора (напр. K006 PW):", parent=self)
+        if not code:
+            return None
+        if any(d["key"] == code.strip() for d in self.decs):
+            messagebox.showwarning("Декор", "Вече има декор с този код.", parent=self)
+            return None
+        name = simpledialog.askstring("Нов декор", "Име (напр. Дъб ърбън амбър):", parent=self) or code
+        wood = messagebox.askyesno("Нов декор", "Дървесен декор (с шарка/фладер)?", default="yes" if kind_guess == "wood" else "no", parent=self)
+        sup = simpledialog.askstring("Нов декор", "Доставчик/марка (по желание):", parent=self) or ""
+        return {"key": code.strip(), "name": name.strip(), "kind": "wood" if wood else "uni", "supplier": sup.strip(), "image": ""}
+
+    def add_color(self):
+        from tkinter import colorchooser
+        col = colorchooser.askcolor(parent=self, title="Цвят на декора")[1]
+        if not col:
+            return
+        d = self._ask_meta()
+        if d:
+            d["color"] = col
+            self.decs.append(d)
+            self.fill()
+
+    def _add_from_bytes(self, raw):
+        try:
+            col, kind = decor_mod.analyze_image_bytes(raw)
+        except Exception as e:  # noqa
+            messagebox.showerror("Декор", f"Снимката не може да се прочете:\n{e}", parent=self)
+            return
+        d = self._ask_meta(kind)
+        if not d:
+            return
+        d["color"] = col
+        try:
+            d["image"] = decor_mod.save_image(raw, d["key"])
+        except Exception:  # noqa
+            d["image"] = ""
+        self.decs.append(d)
+        self.fill()
+        self.tv.selection_set(d["key"])
+        self.tv.see(d["key"])
+
+    def add_file(self):
+        p = filedialog.askopenfilename(parent=self, filetypes=[("Снимки", "*.jpg *.jpeg *.png *.webp"), ("Всички", "*.*")])
+        if p:
+            with open(p, "rb") as fh:
+                self._add_from_bytes(fh.read())
+
+    def add_url(self):
+        url = simpledialog.askstring("От линк", "Поставете линк към снимката на декора\n(десен бутон върху снимката в каталога → „Копиране на адреса на изображението“):", parent=self)
+        if not url:
+            return
+        try:
+            raw = decor_mod.download(url.strip())
+        except Exception as e:  # noqa
+            messagebox.showerror("Декор", f"Не мога да изтегля снимката:\n{e}", parent=self)
+            return
+        self._add_from_bytes(raw)
+
+    def recolor(self):
+        from tkinter import colorchooser
+        sel = self.tv.selection()
+        if not sel:
+            return
+        d = decor_mod.get(self.decs, sel[0])
+        col = colorchooser.askcolor(color=d["color"], parent=self, title=decor_mod.label(d))[1]
+        if col:
+            d["color"] = col
+            self.fill()
+
+    def delete(self):
+        sel = self.tv.selection()
+        if not sel:
+            return
+        key = sel[0]
+        used = [it["name"] for it in self.app.project["items"] if key in (it.get("carcass_decor"), it.get("front_decor"))]
+        if used:
+            messagebox.showwarning("Декор", "Декорът се използва в: " + ", ".join(used), parent=self)
+            return
+        self.app.cat["decors"] = [d for d in self.decs if d["key"] != key]
+        self.fill()
 
 
 class ApiKeyDialog(tk.Toplevel):

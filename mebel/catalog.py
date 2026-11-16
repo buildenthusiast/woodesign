@@ -5,6 +5,8 @@
 """
 import copy
 
+from .decors import default_decors
+
 # Плоскостни материали. sheet_l е по посоката на фладера (дългата страна).
 DEFAULT_MATERIALS = [
     {"key": "pdch18_bial", "name": "ПДЧ 18 мм бяло", "kind": "ПДЧ", "t": 18, "sheet_l": 2800, "sheet_w": 2070, "grain": False, "price": 48.0},
@@ -84,6 +86,7 @@ def default_catalog():
         "bands": copy.deepcopy(DEFAULT_BANDS),
         "hinges": copy.deepcopy(DEFAULT_HINGES),
         "slides": copy.deepcopy(DEFAULT_SLIDES),
+        "decors": default_decors(),
         "hardware_prices": {
             "Конфирмат 7x50": 0.05, "Рафтоносач": 0.05, "Краче регулируемо 100-150 мм": 0.9,
             "Окачвач за горен шкаф": 2.0, "Дръжка": 3.0, "Push-to-open тласкач": 3.0,

@@ -51,7 +51,10 @@ RESULT_SCHEMA = {
         "fronts_material": {"type": "string", "enum": ["ПДЧ", "МДФ"], "description": "МДФ за боядисани/фрезовани/гланц фронтове, ПДЧ за ламинирани."},
         "fronts_finish": {"type": "string", "description": "Цвят/декор на фронтовете на български."},
         "carcass_finish": {"type": "string", "description": "Цвят/декор на корпуса на български."},
-        "wood_grain_decor": {"type": "boolean", "description": "true ако декорът е дървесен (има фладер)."},
+        "wood_grain_decor": {"type": "boolean", "description": "true ако декорът на фронтовете е дървесен (има фладер)."},
+        "fronts_color_hex": {"type": "string", "description": "Преобладаващ цвят на фронтовете като #rrggbb."},
+        "carcass_color_hex": {"type": "string", "description": "Преобладаващ цвят на корпуса като #rrggbb."},
+        "carcass_wood_decor": {"type": "boolean", "description": "true ако корпусът е в дървесен декор."},
         "handles": {"type": "string", "enum": ["handle", "push", "profile"]},
         "lift_up_door": {"type": "boolean", "description": "true ако има хоризонтална подемна клапа."},
         "sections": {"type": "array", "items": SECTION_SCHEMA, "description": "Вертикалните секции отляво надясно."},
@@ -59,6 +62,7 @@ RESULT_SCHEMA = {
     },
     "required": ["is_furniture", "furniture_type", "name", "description", "width_mm", "height_mm", "depth_mm", "base",
                  "base_height_mm", "top", "fronts_material", "fronts_finish", "carcass_finish", "wood_grain_decor",
+                 "fronts_color_hex", "carcass_color_hex", "carcass_wood_decor",
                  "handles", "lift_up_door", "sections", "advice"],
     "additionalProperties": False,
 }
@@ -325,6 +329,17 @@ def result_to_item(res, catalog, known=None):
         g = [m for m in mats if m["kind"] == "ПДЧ" and m["grain"] and m["t"] == t_c]
         if g and ftype not in ("base", "wall", "tall"):
             it["carcass_mat"] = g[0]["key"]
+    # декори – най-близкият цвят от библиотеката
+    from .decors import nearest
+    decs = catalog.get("decors", [])
+    fd = nearest(decs, res.get("fronts_color_hex"), wood=grain if want_kind == "ПДЧ" else None,
+                 kinds=("paint", "gloss") if want_kind == "МДФ" else None)
+    if fd:
+        it["front_decor"] = fd["key"]
+    cd = nearest(decs, res.get("carcass_color_hex"), wood=bool(res.get("carcass_wood_decor")),
+                 kinds=None if res.get("carcass_wood_decor") else ("uni",))
+    if cd:
+        it["carcass_decor"] = cd["key"]
     if res.get("lift_up_door"):
         it["hinge"] = "lift"
 

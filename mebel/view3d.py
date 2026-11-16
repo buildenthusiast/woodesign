@@ -44,12 +44,19 @@ def boxes_from(item, res, catalog):
     back = item.get("back", "nailed")
     bt = float(bm["t"]) if (bm and back != "none") else 0.0
     dp = D - bt if back == "nailed" else D
-    cc, fc = _mat_color(cm), _mat_color(fm)
+    from .decors import get as get_decor, default_for_material
+    decs = catalog.get("decors", [])
+    cdec = get_decor(decs, item.get("carcass_decor") or default_for_material(cm))
+    fdec = get_decor(decs, item.get("front_decor") or default_for_material(fm))
+    cc, fc = cdec["color"], fdec["color"]
+    cwood, fwood = cdec["kind"] == "wood", fdec["kind"] == "wood"
     out = []
 
     def B(x0, x1, y0, y1, z0, z1, color, kind, **kw):
         if x1 - x0 > 0.1 and y1 - y0 > 0.1 and z1 - z0 > 0.1:
-            d = dict(x0=x0, x1=x1, y0=y0, y1=y1, z0=z0, z1=z1, color=color, kind=kind)
+            d = dict(x0=x0, x1=x1, y0=y0, y1=y1, z0=z0, z1=z1, color=color, kind=kind,
+                     wood=(color == fc and fwood and kind in ("door", "lift", "drawer"))
+                     or (color == cc and cwood and kind in ("side", "panel", "divider", "shelf", "plinth")))
             d.update(kw)
             out.append(d)
 
@@ -221,8 +228,46 @@ def render_polys(boxes, size, yaw, pitch, w, h, zoom=1.0, pan=(0.0, 0.0), op=0.0
                 x, y, z = P[i]
                 pz = cam / (cam + z)
                 pts2 += [w / 2 + pan[0] + x * scale * pz, h / 2 + pan[1] - y * scale * pz]
-            polys.append((pts2, _shade(b["color"], 0.62 + 0.45 * lam)))
+            col = _shade(b["color"], 0.62 + 0.45 * lam)
+            lines = _grain(b, f, pts2, col) if b.get("wood") else []
+            polys.append((pts2, col, lines))
     return polys
+
+
+def _grain(b, f, pts2, col):
+    """Линии на дървесната шарка по дългата ос на детайла (фладер)."""
+    ext = (b["x1"] - b["x0"], b["y1"] - b["y0"], b["z1"] - b["z0"])
+    axis = max(range(3), key=lambda i: ext[i])
+    base = corners(b, 0, 0)
+    A, B_, C, Dd = (base[i] for i in f)
+    e_ab = [B_[j] - A[j] for j in range(3)]
+    e_ad = [Dd[j] - A[j] for j in range(3)]
+    if abs(e_ab[axis]) > 0.5:
+        along, across_len = "ab", math.sqrt(sum(x * x for x in e_ad))
+    elif abs(e_ad[axis]) > 0.5:
+        along, across_len = "ad", math.sqrt(sum(x * x for x in e_ab))
+    else:
+        return []   # челото (напречно на фладера) – без линии
+    p = [(pts2[i], pts2[i + 1]) for i in range(0, 8, 2)]
+    scr = max(abs(p[0][0] - p[2][0]), abs(p[0][1] - p[2][1]))
+    if scr < 12:
+        return []
+    n = int(max(3, min(28, across_len / 30)))
+    seed = int(b["x0"] * 7 + b["y0"] * 13 + b["z0"] * 17 + sum(f)) & 0xFFFF
+    dark = _shade(col, 0.86)
+    out = []
+
+    def lerp(u, v, t):
+        return (u[0] + (v[0] - u[0]) * t, u[1] + (v[1] - u[1]) * t)
+    for i in range(n):
+        seed = (seed * 1103515245 + 12345) & 0x7FFFFFFF
+        t = (i + 0.5 + ((seed % 1000) / 1000 - 0.5) * 0.7) / n
+        if along == "ab":
+            s0, s1 = lerp(p[0], p[3], t), lerp(p[1], p[2], t)
+        else:
+            s0, s1 = lerp(p[0], p[1], t), lerp(p[3], p[2], t)
+        out.append((s0[0], s0[1], s1[0], s1[1], dark))
+    return out
 
 
 class View3D(ttk.Frame):
@@ -299,8 +344,10 @@ class View3D(ttk.Frame):
         if w < 20 or not self.boxes:
             return
         W, H, D = self.size
-        for pts2, col in render_polys(self.boxes, self.size, self.yaw, self.pitch, w, h, self.zoom, self.pan,
-                                      float(self.open_var.get()), self.show_back.get(), self.show_fronts.get()):
+        for pts2, col, lines in render_polys(self.boxes, self.size, self.yaw, self.pitch, w, h, self.zoom, self.pan,
+                                             float(self.open_var.get()), self.show_back.get(), self.show_fronts.get()):
             cv.create_polygon(pts2, fill=col, outline="#6d6252", width=0.6)
+            for x1, y1, x2, y2, lc in lines:
+                cv.create_line(x1, y1, x2, y2, fill=lc)
         cv.create_text(10, h - 10, anchor="sw", fill="#777",
                        text=f"{W:g} × {H:g} × {D:g} мм   ·   завъртане {self.yaw:.0f}°, наклон {self.pitch:.0f}°")

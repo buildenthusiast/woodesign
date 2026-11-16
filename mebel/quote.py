@@ -5,6 +5,7 @@
 мебелите пропорционално на площта на детайлите им.
 """
 import datetime
+import os
 
 from .catalog import find, HANDLES
 from .project import compute
@@ -66,6 +67,17 @@ def item_price(cost, q):
     return round(cost["total"] * (1 + q["markup_pct"] / 100) + q["labor_per_item"], 2)
 
 
+def item_decor(it, cat, part):
+    from .decors import get, default_for_material
+    M = {m["key"]: m for m in cat["materials"]}
+    return get(cat.get("decors", []), it.get(f"{part}_decor") or default_for_material(M.get(it.get(f"{part}_mat"))))
+
+
+def decor_label(it, cat, part):
+    d = item_decor(it, cat, part)
+    return f"{d['key']} {d['name']}"
+
+
 def describe(it, r, cat):
     """Кратко описание на мебелта за клиента (списък редове)."""
     M = {m["key"]: m for m in cat["materials"]}
@@ -75,8 +87,8 @@ def describe(it, r, cat):
     shelves = kinds.count("shelf")
     rails = kinds.count("rail")
     lines = [f"Размери: {it['W']:g} × {it['H']:g} × {it['D']:g} мм (Ш × В × Д)",
-             f"Корпус: {M[it['carcass_mat']]['name']}",
-             f"Фронтове: {M[it['front_mat']]['name']}"]
+             f"Корпус: {M[it['carcass_mat']]['name']} – декор {decor_label(it, cat, 'carcass')}",
+             f"Фронтове: {M[it['front_mat']]['name']} – декор {decor_label(it, cat, 'front')}"]
     eq = []
     if doors:
         eq.append(f"{doors} врат{'а' if doors == 1 else 'и'}")
@@ -162,14 +174,20 @@ def export_quote_pdf(project, path, comp=None):
         x0, y0 = mg + 8, y - block + 10
         c.setLineWidth(0.3)
         c.setStrokeColor(colors.HexColor("#6d6252"))
-        for pts, col in render_polys(boxes, size, 30, 15, img, img, zoom=1.05):
+        for pts, col, lines in render_polys(boxes, size, 30, 15, img, img, zoom=1.05):
             pth = c.beginPath()
             pth.moveTo(x0 + pts[0], y0 + img - pts[1])
             for i in range(2, len(pts), 2):
                 pth.lineTo(x0 + pts[i], y0 + img - pts[i + 1])
             pth.close()
             c.setFillColor(colors.HexColor(col))
+            c.setLineWidth(0.3)
+            c.setStrokeColor(colors.HexColor("#6d6252"))
             c.drawPath(pth, stroke=1, fill=1)
+            c.setLineWidth(0.2)
+            for x1, y1, x2, y2, lc in lines:
+                c.setStrokeColor(colors.HexColor(lc))
+                c.line(x0 + x1, y0 + img - y1, x0 + x2, y0 + img - y2)
         # текст
         tx = mg + img + 24
         c.setFillColor(colors.black)
@@ -180,6 +198,28 @@ def export_quote_pdf(project, path, comp=None):
         for ln in _wrap(describe(it, r, cat), 62):
             c.drawString(tx, ty, ln)
             ty -= 12.5
+        # мостри на декорите
+        sx = tx
+        for part, lbl in (("carcass", "Корпус"), ("front", "Фронтове")):
+            d = item_decor(it, cat, part)
+            sy = y - block + 12
+            img_ok = False
+            if d.get("image") and os.path.exists(d["image"]):
+                try:
+                    c.drawImage(d["image"], sx, sy, 34, 34, preserveAspectRatio=False)
+                    img_ok = True
+                except Exception:  # noqa
+                    pass
+            if not img_ok:
+                c.setFillColor(colors.HexColor(d["color"]))
+                c.setStrokeColor(colors.HexColor("#888888"))
+                c.rect(sx, sy, 34, 34, stroke=1, fill=1)
+            c.setFillColor(colors.black)
+            c.setFont(F, 7)
+            c.drawString(sx + 38, sy + 24, lbl)
+            c.drawString(sx + 38, sy + 14, d["key"])
+            c.drawString(sx + 38, sy + 4, d["name"][:22])
+            sx += 130
         c.setFont(FB, 13)
         c.drawRightString(PW - mg - 12, y - block + 14, f"{price:,.2f} €".replace(",", " "))
         y -= block + 10

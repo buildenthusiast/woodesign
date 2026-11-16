@@ -86,6 +86,7 @@ FAKE = {
     "width_mm": 1500, "height_mm": 2300, "depth_mm": 600, "base": "plinth", "base_height_mm": 80, "top": "between",
     "fronts_material": "ПДЧ", "fronts_finish": "дъб", "carcass_finish": "дъб", "wood_grain_decor": True,
     "handles": "profile", "lift_up_door": False,
+    "fronts_color_hex": "#a57a4c", "carcass_color_hex": "#f5f5f2", "carcass_wood_decor": False,
     "sections": [
         {"width_ratio": 0.66, "doors": 2, "shelves": 1, "drawers": 0, "drawers_fill_section": False, "drawer_front_h": 0,
          "drawers_on_top": False, "hanging_rails": 1, "door_height": 0, "open_shelves_above": 0},
@@ -225,3 +226,24 @@ def test_3d_doors_open_outward():
 def test_updater_notes_clean():
     from mebel import updater
     assert updater._clean_notes("Fix\n\nCo-Authored-By: x\nClaude-Session: y") == "Fix"
+
+
+def test_decors_render_and_nearest():
+    from mebel.decors import nearest, default_decors, get
+    from mebel.view3d import boxes_from, render_polys
+    from mebel.photo import result_to_item
+    decs = default_decors()
+    assert nearest(decs, "#a57a4c", wood=True)["key"] == "K006 PW"
+    assert nearest(decs, "#f5f5f2", kinds=("uni",))["kind"] == "uni"
+    it = default_item("wardrobe")
+    it["front_decor"] = "K006 PW"
+    it["carcass_decor"] = "164 PE"
+    bx = boxes_from(it, build(it, CAT), CAT)
+    door = next(b for b in bx if b["kind"] == "door")
+    side = next(b for b in bx if b["kind"] == "side")
+    assert door["color"] == get(decs, "K006 PW")["color"] and door["wood"]
+    assert side["color"] == get(decs, "164 PE")["color"] and not side["wood"]
+    polys = render_polys(bx, (1500, 2400, 600), 30, 15, 400, 400)
+    assert any(lines for _, _, lines in polys)
+    it2 = result_to_item(FAKE, CAT)
+    assert it2["front_decor"] == "K006 PW" and get(decs, it2["carcass_decor"])["kind"] == "uni"
