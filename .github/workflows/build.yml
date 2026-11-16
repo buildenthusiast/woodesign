@@ -1,0 +1,54 @@
+name: Build Windows exe
+
+# При всяко качване в main: тестове + MebelDesigner.exe.
+# Ако версията в mebel/__init__.py е нова (няма такъв таг), се създава
+# GitHub Release vX.Y.Z с .exe – програмата се обновява от него.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pytest
+
+      - name: Tests
+        run: python -m pytest -q tests
+
+      - name: Build exe
+        run: python -m PyInstaller --noconfirm --onefile --windowed --name MebelDesigner --add-data "mebel\fonts;mebel\fonts" main.py
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MebelDesigner
+          path: dist/MebelDesigner.exe
+
+      - name: Release (new version only)
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VER=$(python -c "import mebel; print(mebel.__version__)")
+          TAG="v$VER"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists - skipping"
+            exit 0
+          fi
+          NOTES=$(git log -1 --pretty=%B)
+          gh release create "$TAG" dist/MebelDesigner.exe --title "Мебел Дизайнер $VER" --notes "$NOTES"
