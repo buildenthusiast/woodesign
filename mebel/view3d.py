@@ -99,15 +99,17 @@ def corners(b, op, D):
     k = b["kind"]
     if op > 0 and k == "door":
         # въртене около вертикалната ос на пантата (до 100°)
-        a = math.radians(100 * op) * (1 if b["side"] == "L" else -1)
+        a = math.radians(100 * op) * (-1 if b["side"] == "L" else 1)   # навън към потребителя (z < 0)
         hx = b["hinge"]
         ca, sa = math.cos(a), math.sin(a)
-        pts = [(hx + (x - hx) * ca - z * sa, y, (x - hx) * sa + z * ca) for x, y, z in pts]
+        zp = b["z0"]   # оста е на предната страна на вратата – вратата излиза навън
+        pts = [(hx + (x - hx) * ca - (z - zp) * sa, y, zp + (x - hx) * sa + (z - zp) * ca) for x, y, z in pts]
     elif op > 0 and k == "lift":
-        a = math.radians(-80 * op)
+        a = math.radians(80 * op)   # клапата се вдига нагоре и навън
         hy = b["hinge_y"]
         ca, sa = math.cos(a), math.sin(a)
-        pts = [(x, hy + (y - hy) * ca - z * sa, (y - hy) * sa + z * ca) for x, y, z in pts]
+        zp = b["z0"]
+        pts = [(x, hy + (y - hy) * ca - (z - zp) * sa, zp + (y - hy) * sa + (z - zp) * ca) for x, y, z in pts]
     elif op > 0 and k in ("drawer", "drawerbox"):
         dz = -0.75 * (D - 60) * op
         pts = [(x, y, z + dz) for x, y, z in pts]

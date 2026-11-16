@@ -204,3 +204,19 @@ def test_updater_check():
             "assets": [{"name": "MebelDesigner.exe", "browser_download_url": "https://dl/x.exe"}]}).encode())
     assert updater.check(opener=mk("v99.0.0"))["url"] == "https://dl/x.exe"
     assert updater.check(opener=mk("v0.0.1")) is None
+
+
+def test_3d_doors_open_outward():
+    from mebel.view3d import boxes_from, corners
+    for ft in ("wardrobe", "base", "wall"):
+        it = default_item(ft)
+        if ft == "wall":
+            it["hinge"] = "lift"
+        bx = boxes_from(it, build(it, CAT), CAT)
+        fronts = [b for b in bx if b["kind"] in ("door", "lift")]
+        assert fronts
+        for b in fronts:
+            pts = corners(b, 1.0, it["D"])
+            # отворената врата/клапа трябва да е пред корпуса (z <= 0), не вътре в него
+            assert max(p[2] for p in pts) <= 1e-6, (ft, b["kind"])
+            assert min(p[2] for p in pts) < -100
