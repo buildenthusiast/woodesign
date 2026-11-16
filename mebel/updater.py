@@ -23,17 +23,66 @@ def _ver(s):
     return tuple(int(x) for x in re.findall(r"\d+", s)[:3]) or (0,)
 
 
-def check(timeout=8, opener=None):
-    """Връща dict(version, url, notes, page) ако има по-нова версия, иначе None."""
-    opener = opener or urllib.request.urlopen
-    req = urllib.request.Request(API, headers={"Accept": "application/vnd.github+json", "User-Agent": "MebelDesigner-updater"})
-    with opener(req, timeout=timeout) as r:
-        rel = json.loads(r.read().decode("utf-8"))
-    tag = rel.get("tag_name", "")
+def _ssl_context():
+    import ssl
+    try:
+        import certifi   # идва с програмата; надежден списък сертификати и в .exe
+        return ssl.create_default_context(cafile=certifi.where())
+    except Exception:  # noqa
+        return ssl.create_default_context()
+
+
+def _open(req, timeout, opener=None):
+    if opener:
+        return opener(req, timeout=timeout)
+    return urllib.request.urlopen(req, timeout=timeout, context=_ssl_context())
+
+
+def log(msg):
+    try:
+        base = os.environ.get("APPDATA") or os.path.join(os.path.expanduser("~"), ".config")
+        d = os.path.join(base, "MebelDesigner")
+        os.makedirs(d, exist_ok=True)
+        import datetime
+        with open(os.path.join(d, "update.log"), "a", encoding="utf-8") as f:
+            f.write(f"{datetime.datetime.now():%Y-%m-%d %H:%M:%S} {__version__}: {msg}\n")
+    except Exception:  # noqa
+        pass
+
+
+def _clean_notes(body):
+    lines = [ln for ln in (body or "").splitlines()
+             if not ln.startswith(("Co-Authored-By:", "Claude-Session:"))]
+    return "\n".join(lines).strip()
+
+
+def _info(tag, url, notes, page):
     if _ver(tag) <= _ver(__version__):
         return None
-    url = next((a["browser_download_url"] for a in rel.get("assets", []) if a.get("name") == ASSET), None)
-    return {"version": tag.lstrip("v"), "url": url, "notes": rel.get("body", "") or "", "page": rel.get("html_url", "")}
+    return {"version": tag.lstrip("v"), "url": url, "notes": _clean_notes(notes), "page": page}
+
+
+def check(timeout=10, opener=None):
+    """Връща dict(version, url, notes, page) ако има по-нова версия, иначе None.
+    Първо GitHub API; при грешка – пренасочването на /releases/latest."""
+    hdr = {"Accept": "application/vnd.github+json", "User-Agent": "MebelDesigner-updater"}
+    try:
+        with _open(urllib.request.Request(API, headers=hdr), timeout, opener) as r:
+            rel = json.loads(r.read().decode("utf-8"))
+        tag = rel.get("tag_name", "")
+        url = next((a["browser_download_url"] for a in rel.get("assets", []) if a.get("name") == ASSET), None)
+        return _info(tag, url, rel.get("body", ""), rel.get("html_url", ""))
+    except Exception as e:  # noqa
+        log(f"API: {e!r} – опит през /releases/latest")
+        if opener:
+            raise
+    page = f"https://github.com/{REPO}/releases/latest"
+    with _open(urllib.request.Request(page, headers={"User-Agent": "MebelDesigner-updater"}), timeout) as r:
+        final = r.geturl()
+    tag = final.rstrip("/").rsplit("/", 1)[-1]
+    if not tag.startswith("v"):
+        raise IOError("Няма публикувана версия.")
+    return _info(tag, f"https://github.com/{REPO}/releases/download/{tag}/{ASSET}", "", final)
 
 
 def is_frozen():
@@ -46,7 +95,7 @@ def download_and_replace(url, progress=None):
     exe = sys.executable
     new = exe + ".new"
     req = urllib.request.Request(url, headers={"User-Agent": "MebelDesigner-updater"})
-    with urllib.request.urlopen(req, timeout=60) as r, open(new, "wb") as f:
+    with _open(req, 120) as r, open(new, "wb") as f:
         total = int(r.headers.get("Content-Length") or 0)
         done = 0
         while True:

@@ -220,3 +220,8 @@ def test_3d_doors_open_outward():
             # отворената врата/клапа трябва да е пред корпуса (z <= 0), не вътре в него
             assert max(p[2] for p in pts) <= 1e-6, (ft, b["kind"])
             assert min(p[2] for p in pts) < -100
+
+
+def test_updater_notes_clean():
+    from mebel import updater
+    assert updater._clean_notes("Fix\n\nCo-Authored-By: x\nClaude-Session: y") == "Fix"

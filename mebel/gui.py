@@ -76,6 +76,7 @@ class App(tk.Tk):
                 out["err"] = str(e)
         th = threading.Thread(target=work, daemon=True)
         th.start()
+        self.status.set("Проверявам за нова версия…")
 
         def poll():
             if th.is_alive():
@@ -83,13 +84,18 @@ class App(tk.Tk):
                 return
             info = out.get("info")
             if "err" in out:
+                updater.log(f"грешка: {out['err']}")
+                self.status.set(f"Проверката за обновления не успя ({out['err'][:80]}). Помощ → Провери за обновления.")
                 if not silent:
-                    messagebox.showwarning("Обновления", f"Не мога да проверя за обновления:\n{out['err']}")
+                    messagebox.showwarning("Обновления", f"Не мога да проверя за обновления:\n{out['err']}\n\n"
+                                           f"Изтеглете ръчно от github.com/{updater.REPO}/releases")
                 return
             if not info:
+                self.status.set(f"Имате последната версия ({__version__}).")
                 if not silent:
                     messagebox.showinfo("Обновления", f"Имате последната версия ({__version__}).")
                 return
+            updater.log(f"намерена версия {info['version']}")
             self.status.set(f"Има нова версия {info['version']} – Помощ → Провери за обновления.")
             msg = f"Има нова версия {info['version']} (вашата е {__version__}).\n\n{info['notes'][:600]}\n\n"
             if updater.is_frozen() and info.get("url"):
@@ -100,8 +106,9 @@ class App(tk.Tk):
                         if updater.download_and_replace(info["url"]):
                             self.destroy()
                     except Exception as e:  # noqa
+                        updater.log(f"сваляне: {e!r}")
                         self.config(cursor="")
-                        messagebox.showerror("Обновления", f"Грешка при обновяване:\n{e}")
+                        messagebox.showerror("Обновления", f"Грешка при обновяване:\n{e}\n\nИзтеглете ръчно: {info.get('page')}")
             elif not silent or info.get("url"):
                 if messagebox.askyesno("Нова версия", msg + "Да отворя ли страницата за изтегляне?"):
                     import webbrowser
